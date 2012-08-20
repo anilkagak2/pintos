@@ -7,9 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/malloc.h"
-#include <list.h>  
-
+  
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -26,12 +24,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-/* List of threads sleeping currently.
-   List will hold the elements of the type 'struct sleep_thread_params'. */
+/* List of threads sleeping currently. */
 static struct list sleep_list;
-
-/* Cannot call free() in timer interrupt handler.
-   can use a new list in which insert the element removed from sleeping_list. */
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -40,8 +34,7 @@ static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
-   and registers the corresponding interrupt.
-   Also initializes the sleep_list. */
+   and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
@@ -100,28 +93,19 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
-  enum intr_level old_level;
+//  int64_t start = timer_ticks (); // Think of using it
 
+  enum intr_level old_level;
   ASSERT (intr_get_level () == INTR_ON);
 
-  /* Allocates memory for the structure to be inserted to the list,
-     if sleep time is still left.
-     Then blocks the running thread by calling thread_block() */
-  if (timer_elapsed(start) < ticks) 
-  {
-	old_level = intr_disable();
-	struct sleep_thread_params *stp = (struct sleep_thread_params *)malloc(sizeof(struct sleep_thread_params));
-	ASSERT (stp != NULL);
-
-	stp->sleep_start = start;
-	stp->sleep_time = ticks;
-	stp->telem = &thread_current()->elem;
-
-	list_push_back(&sleep_list, &stp->elem);
-	thread_block();
-	intr_set_level(old_level);
-  }
+  /* Sets the wakeup_time for the thread
+     & Blocks the running thread by calling thread_block(). */
+  old_level = intr_disable ();
+  struct thread *t = thread_current ();
+  t->wakeup_time = ticks;
+  list_push_back (&sleep_list, &t->elem);
+  thread_block ();
+  intr_set_level (old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -201,18 +185,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  /* Scan the whole sleep_list for the threads to be woken up. 
+     Decreases their wakeup time & remove threads who have completed their sleep.*/
   struct list_elem *elem = list_next (list_head (&sleep_list));
-
-  /* Scan the whole sleep_list for the threads to be woken up. */
   while (elem != list_end (&sleep_list))
   {
-	struct sleep_thread_params *stp = list_entry(elem, struct sleep_thread_params, elem);
-	if (ticks - stp->sleep_start >= stp->sleep_time)
+	struct thread *t = list_entry (elem, struct thread, elem);
+	t->wakeup_time--;
+
+	if (t->wakeup_time == 0)
 	{
-		struct thread *t = list_entry (stp->telem, struct thread, elem);
 		elem = list_remove (elem);
-//		free(stp);
-		thread_unblock(t);
+		thread_unblock (t);
 	}
 
 	else elem = list_next (elem);

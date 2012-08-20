@@ -32,7 +32,7 @@ typedef int tid_t;
    thread's kernel stack, which grows downward from the top of
    the page (at offset 4 kB).  Here's an illustration:
 
-        4 kB +---------------------------------+
+   4 kB +---------------------------------+
              |          kernel stack           |
              |                |                |
              |                |                |
@@ -93,6 +93,7 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    int64_t wakeup_time;		/* Wakeup time(no. of ticks) for thread. */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
